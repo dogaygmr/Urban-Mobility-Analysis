@@ -1,0 +1,890 @@
+---
+title: "Analysis of Individual Choices in Selecting Car as Mode of Transportation for Work or Study Commutes During the Business Week"
+subtitle: "SABD Project: Urban Mobility Analysis, Mode of Transport Choice."
+author: "Doga Yilmaz"
+date: "31 / January / 2024"
+output: pdf_document
+fontsize: 10pt
+header-includes:
+  \renewcommand{\contentsname}{Table of Content}
+  \usepackage{tcolorbox}
+  \newtcolorbox{blackbox}{
+  colback=black,
+  colframe=orange,
+  coltext=white,
+  boxsep=5pt,
+  arc=4pt}
+toc: true
+theme: unitedtlm
+link-citations: yes
+biblio-style: apalike
+bibliography: ["Project_biblio.bib"]
+editor_options: 
+  markdown: 
+    wrap: sentence
+---
+
+```{r definitions, echo=FALSE, results='hide'}
+duedate <- "31/01/2024"
+```
+\newpage
+
+# Introduction
+
+For the present report, we utilized a database extracted from a mobility survey conducted in Grenoble in 2010, provided by Professor Joly I. This database was employed to apply concepts developed during the semester in the subject of Smart Analytics for Big Data.The dataset encompasses information regarding the trips made by members of Grenoble households in 2010, as reported by Cerema (2013). It includes data related to individual and household characteristics, such as household structure, motorization, sex, age, professional status, and more, along with details about mobility practices, such as the number of trips, travel times, locations of trips, modes used, reasons for trips, etc.
+
+For the specific case of this analysis, the focus was on analyzing the choice of the 'car' as the mode of travel for individuals. The aim was to identify the determinants of this choice among individual or household characteristics and modes of transport. Factors considered include the type of transport individuals usually take, the status of their driving license, age, and a specific emphasis on the influence of the household. Throughout the document, we will delve into data management, variables handling, model choice and fit, and more.
+
+The *scientific question* guiding the present analysis was defined as follows: When applying logistic regression to the structured data, how significant are the effects of Age, Driving License status, and the different household characteristics in influencing the choice of car over an alternative transportation modes?
+
+```{r setup, include=FALSE, cache=FALSE }
+## Libraries
+library(tidyverse)
+library(knitr)
+library(ggplot2)
+library(skimr)
+library(dplyr)
+
+library(readr)
+library(broom)
+library(nnet)
+library(pROC)
+
+
+#install.packages("Mongolite")
+#library(mongolite)
+
+## Global options
+knitr::opts_chunk$set(               # Here we define behaviours of the code chunks in the Rmd
+               echo=T,        # to display code lines (False to hide them; but they will be ran)
+               eval=FALSE,     # to run the chunks
+	             message=FALSE, # to hide in the document R messages while running chuncks
+               warning=FALSE, # to hide in the document R alerts
+               results='hide') #'hide' for hiding outputs, 'asis' for display in generated pdf document
+knitr::opts_knit$set(width=75)  
+options(max.print="200")       # to define max number of elements (lines) displayed by R when running an instruction
+```
+
+# Literature Review
+
+Travel mode choice is the complicated process by which people choose their modes of transportation.
+This process is impacted by a variety of variables, including environmental concerns and personal preferences.
+Understanding travel behaviour is essential to informing transport management and planning.
+(Dong Wang D., Liu Y., 2015) In addition, travel mode choice research reveals the impact of the transportation sector on climate change.
+The widespread public transportation network in cities reduces people's use of private vehicles, which creates a positive environmental impact.
+(Cheea W., Fernandez J., 2013)
+
+![State of art](Images/litterature.png){width='400px'}
+
+
+When the studies conducted in this field are examined, the features that give statistically significant results from the data obtained are almost similar to each other.
+Buehler (2011) conducted a comparative study examining mode choice in Germany and the USA, categorizing key attributes into four groups: socio-economic and demographic characteristics (e.g., household income, vehicle ownership), spatial development patterns (e.g., population density), transportation policies (e.g., fuel prices, parking costs), and culture and attitude (e.g., eco-socialization).
+(Puan O. et al., 2019) Buehler's research revealed that vehicle owners who have a job and a driver's license prefer the car at a higher rate.
+
+In the article written by Ji Y.
+et al in 2018, it was examined how household roles affect travel mode choice.
+The article found that women are less inclined to travel long distances because they are usually busy with household chores.
+However, when the distance exceeds the acceptable limit for cycling or walking, it has been observed that women's driving rates increase compared to their husbands.
+
+In a study conducted by Wójcik S.
+in 2019 to determine the factors affecting travel mode choice in Poland, it was observed that owning a car increases the tendency to use private vehicles instead of public transportation.
+In addition, as age increased, the probability of regular use of private transport also increased up to a certain age, and then a decline was observed but according to the article the effect of age was linear for the public transport model.
+A one-year increase in age reduced the probability of choosing public transport by 0.004.
+Gender differences were clearly visible in the results of this study.
+Women were more likely (by 0.09) than men to use public transportation on a daily basis.
+The status of being a student had a significant impact on the regular usage of public transportation.
+Car ownership is the strongest positive determinant of choosing private transportation.
+
+In the research conducted by Puan O.
+et al. in 2019, binary logit model was used as the artificial intelligence model since only the bus and car preference of the participants was examined.
+According to this research the mode choice of transport in Johor Bahru city is statistically correlated with age of users, income, vehicle ownership, car-comfortability, reliability of bus service, affective motives and instrumental motives.
+ROC curve was used to measure the accuracy of the model.
+
+# Data Preparation
+
+For answering our research question, We will reduce the data to person level, selecting interested variables and creating new variables to describe family structure for each person.
+
+```{r echo=FALSE, results='hide', eval=T }
+load("allgre.PB_V2.RData")
+#names(allgre.PB_V2)
+#nrow(allgre.PB_V2)
+```
+
+## Data Preprocess / Analyse
+
+### Immobil Person
+
+```{r echo=F, results='hide', eval=T }
+# Creation of new id_dep1
+sum(is.na(allgre.PB_V2$id_depl))
+
+allgre.PB_V2$id_dep1 <- ifelse(
+  !is.na(allgre.PB_V2$id_pers) & !is.na(allgre.PB_V2$NO_DEPL) & !is.na(allgre.PB_V2$mode_depl_ag),
+  allgre.PB_V2$id_pers * 10 + allgre.PB_V2$NO_DEPL,
+  NA  # Koşul sağlanmazsa NA atar
+)
+table(is.na(allgre.PB_V2$id_depl))
+table(allgre.PB_V2$nbd)
+sum(is.na(allgre.PB_V2$id_depl))
+
+```
+
+In the data, we conclude that records (rows) which have a missing value in id_depl, have also a missing value in mode_depl_ag. It means that missing values in mode_depl_ag are attributed to persons being immobile (having no trip).
+So,we point person who has at least one trip in the day, and since the analysis focuses on transport choice (mode_depl_ag), records of immobile persons (who have no transport choice) are not relevant and are thus removed from the data.
+
+```{r echo=F, results='hide', eval=T }
+
+#By determining whether the values in the nbd column are different from zero, it keeps this information as (true/false) in the column named UN
+allgre.PB_V2$UN <- as.numeric(allgre.PB_V2$nbd !=0)
+table(as.numeric(allgre.PB_V2$UN))
+sum(is.na(allgre.PB_V2$mode_depl_ag))
+
+# Check if UN column is FALSE (0) for NA values in mode_depl_ag column
+UN_is_FALSE_for_mode_depl_ag_NA <- with(allgre.PB_V2, is.na(mode_depl_ag) & UN == 0)
+table(UN_is_FALSE_for_mode_depl_ag_NA)
+```
+
+```{r echo=F, results='hide', eval=T }
+#drop 1277 record which are immobile and has nan values in mode_depl_ag
+sum(is.na(allgre.PB_V2$mode_depl_ag))
+sum(is.na(allgre.PB_V2$id_depl))
+allgre.PB_V2 <- allgre.PB_V2[!is.na(allgre.PB_V2$mode_depl_ag), ]
+sum(is.na(allgre.PB_V2$mode_depl_ag))
+sum(is.na(allgre.PB_V2$id_depl))
+```
+
+#### Factorisation of "mot_o_red"
+
+We define categorical variable "mot_o_red" as factor and we associate labels to their modalities to make them usable in process.
+
+```{r echo=F, results='hide', eval=T }
+
+allgre.PB_V2 <- allgre.PB_V2 %>% mutate(
+  mot_o_red = factor( case_when(
+                motifor %in% c( 1, 2)	~ 1, #  domicile & residence secondaire
+                motifor %in% c(11, 12) 	~ 2, 	#	/*travail*/
+                motifor %in% c(21, 22, 26)	~ 3, 	#	/*primaire*/
+                motifor %in% c(23, 24, 27, 28)  ~ 4 ,	#	/*col-lyc*/
+                motifor %in% c( 25, 29)		~ 5,  # /*univ*/
+                30 < motifor & motifor < 44	~ 6,	#	/*achat serv*/
+                 49 < motifor & motifor < 55	~ 7,	#	/*loisir*/
+                 60 < motifor & motifor < 75	~ 8,	#	/*acct*/
+                 motifor == 91 | motifor == NA	~ 9, #	/*autre*/
+                 motifor == 81 		~ 10	,  #/*tournee prof*/
+                (motifdes == 91 | motifdes == NA	) & nbd==0 ~ 0
+                # else 0
+                ))
+  )
+
+motif.red <- c("DOMICILE" , "TRAVAIL" , "ECOLE PRIMAIRE" , "C.E.S.-LYCEE" ,"UNIVERSITE" ,'ACHAT' ,'LOISIR' ,'ACCOMPAGNEMENT' , "AUTRES", "Professionnel")
+allgre.PB_V2$mot_o_red <- factor(allgre.PB_V2$mot_o_red,  labels =  motif.red)
+table(allgre.PB_V2$mot_o_red )
+length(unique(allgre.PB_V2$id_pers))
+```
+
+#### Data Reduction
+
+For the beginning, we reduce the data to trips. It means we have more than one record based on their trips for each person.
+
+```{r echo=F, results='hide', eval=T }
+reduced1 <- distinct(allgre.PB_V2, id_depl, .keep_all = T)
+colSums(is.na(reduced1)) 
+table(reduced1$mot_o_red)
+nrow(reduced1)
+length(unique(reduced1$id_pers))
+```
+
+## Selecting and Creating
+
+### Selecting Variables and Records
+
+We are selecting the variables that we are interested in for our case and make a new subset with them.
+
+```{r echo=F, results='hide', eval=T }
+
+selected_data = subset(reduced1, select = c(id_pers,id_men, NO_PERS, sexe, age,permis,VP_DISPO,lien,id_depl,mot_o_red, jourdepl,duree, mode_depl_ag ))
+colSums(is.na(selected_data)) 
+nrow(selected_data)
+length(unique(selected_data$id_pers))
+selected_data$mot_o_red <- factor(selected_data$mot_o_red,  labels =  motif.red)
+table(selected_data$mot_o_red )
+
+```
+
+We filter the data frame 'selected data' by the level [2:5] which are "Travail,Ecole Primaire,Lycée, Université" values in the 'mot_o_red' column with the aim of focusing daily trip to go work or study.
+If we take just work, we eliminate children. Without children, it makes no sense to count child per household. If a household has child, we want to consider them and see them in analysis. So we take the persons going out from home to do their tasks on weekdays.
+
+```{r echo=F, results='hide', eval=T }
+filtered_data <- selected_data %>% 
+  filter(mot_o_red %in% levels(mot_o_red)[2:5])
+nrow(filtered_data)
+length(unique(filtered_data$id_pers))
+```
+
+When we check our record counts, we see that there are 6309 records in our data, equal to the sum of "Travail,Ecole Primaire,Lycée, Université", but 3965 unique ID for persons. It means we have more than one trip for each person.
+```{r echo=F, results='hide', eval=T }
+addmargins( table(filtered_data$duree))
+table(is.na(filtered_data$duree))
+table(cut(filtered_data$duree, breaks=seq(0, max(filtered_data$duree, na.rm = T), 30)), useNA = "always")
+
+```
+
+Therefore, we choose to take the trip that has the longest duration for each person, expecting to have only one record for each person.
+```{r echo=F, results='hide', eval=T }
+# Select the row with the highest duree value for each unique id_pers
+filtered_data<- filtered_data %>%
+  group_by(id_pers) %>%
+  filter(duree == max(duree, na.rm = TRUE)) %>%
+  ungroup()
+
+nrow(filtered_data)
+length(unique(filtered_data$id_pers))
+```
+After this step, our data still does not have the same counts for records(rows) and unique IDs.
+
+REMARK: Count of unique IDs and the count of rows are not the same, because there can be more than one record with the maximum value in the duree variable, i.e. multiple rows for an id_pers can have the same maximum duree value.
+This causes more than one row for the same id_pers to remain in the result data frame after the filter operation.
+
+```{r echo=F, results='hide', eval=T }
+analysis <- filtered_data %>%
+  group_by(id_pers, duree) %>% # Group by both id_pers and duree
+  summarise(mode_depl_ag_values = n_distinct(mode_depl_ag), .groups = 'drop') %>%
+  filter(mode_depl_ag_values > 1) # Filter groups where mode_depl_ag has more than one distinct value
+print(analysis)
+```
+
+When we examine these records,we conclude that we have different mode of transport choices for same person.
+We don't want to select just one record and drop the others, because we focus mode of transport choices for a person and we want to analyse her/his choice based on familial structure.
+That person who has same family structure variables, choose different modes for going same destination because of different reasons that we are not interested.
+So we can/have to take that person with her/his all choices.
+
+So we assign a unique ID for each combination of id_pers, duree, and mode_depl_ag.
+
+From here we will use "combo_id" as unique identifier for each person.(with new created persons).
+
+As a result, we have only one record for a person who has different choice even if (s)he has same familial structure.
+
+```{r echo=F, results='assis', eval=T}
+filtered_data <- filtered_data %>%
+  arrange(id_pers, duree, mode_depl_ag) %>% 
+  group_by(id_pers, duree) %>%
+  mutate(
+    combo_id = paste(id_pers, duree, rank(mode_depl_ag, ties.method = "first"), sep = "_")
+  ) %>%
+  ungroup()
+#kable(filtered_data)
+nrow(filtered_data)
+length(unique(filtered_data$combo_id))
+```
+
+,And as we can see in the outputs, the count of row and count of unique identifer are same.
+
+### Creating New Variables and Tidying
+
+-In permis variable, we take 'in progress' and 'yes' values as "yes".
+
+```{r echo=F, results='hide', eval=T }
+table(filtered_data$permis)
+filtered_data <- filtered_data %>%
+  mutate(permis = case_when(
+    permis %in% c(1, 3) ~ 1,
+    TRUE ~ permis
+  ))
+table(filtered_data$permis)
+```
+
+-We create new variables that describe the family structure for the household:
+"child_count_hh" is to count the children in each household.
+"elderly_count_hh" is to count the elderly in each household.
+"size_hh" is for counting the number of people living in a household.
+"permis_hh" explains whether one of the people living in the same household has a permit.
+"car_count_hh" is for counting the cars in each household.
+
+```{r echo=F, results='hide', eval=T }
+#child count for each hh
+Is_Child <- filtered_data$age < 18
+addmargins( table(Is_Child))
+filtered_data$child_count_hh <-ave(Is_Child, filtered_data$id_men, FUN=sum)
+addmargins( table(filtered_data$child_count_hh))
+print('         ')
+
+#living with elderly people check, count old people per hh
+Is_Old <- filtered_data$age > 65
+addmargins( table(Is_Old))
+filtered_data$elderly_count_hh <-ave(Is_Old, filtered_data$id_men, FUN=sum)
+addmargins( table(filtered_data$elderly_count_hh))
+
+#size of hh
+print('            ')
+print("size of hh")
+filtered_data$size_hh <- ave(filtered_data$NO_PERS, filtered_data$id_men, FUN = max)
+addmargins( table(filtered_data$size_hh) )
+
+#permis posession by hh
+print('         ')
+print("permis posession by hh")
+filtered_data$permis_hh <- ave(filtered_data$permis, filtered_data$id_men, FUN = min)
+addmargins(table(filtered_data$permis_hh))
+
+#car count per hh
+print('          ')
+print("car count per hh")
+filtered_data$car_count_hh <- ave(filtered_data$VP_DISPO, filtered_data$id_men, FUN = max)
+addmargins( table(filtered_data$car_count_hh) )
+```
+```{r echo=F, results='hide', eval=T }
+names(filtered_data)
+colSums(is.na(filtered_data)) 
+```
+
+So we have our first clean data to go further wich has variables below:
+"id_pers" , "id_men", "NO_PERS", "sexe", "age", "permis", "VP_DISPO", "lien", "id_depl", "mot_o_red", "jourdepl", "duree", "mode_depl_ag", "combo_id", "child_count_hh", "elderly_count_hh", "size_hh", "permis_hh", "car_count_hh"
+
+### Factorisation
+
+We define categorical variables which are "sexe,lien,mode_depl_ag, permis_hh" as factor and we associate labels to their modalities to make them usable in process.
+
+```{r echo=F, results='hide', eval=T}
+filtered_data$sexe <- factor(filtered_data$sexe, levels = c(1, 2), labels = c("male", "female"))
+filtered_data$lien <- factor(filtered_data$lien, levels = c(1, 2, 3,4,5,6,7), labels = c("Reference Person", "Spouse","Child lives with reference","Child lives in 2 Home", "Grandparent","Uncle/Aunt","Housemate"))
+filtered_data$mode_depl_ag <- factor(filtered_data$mode_depl_ag, levels = c("Autre", "MAP", "TCIU","TCU", "VP"), labels = c("Other", "by Walk","InterCity","BUS in City", "Car"))
+filtered_data$permis_hh <- factor(filtered_data$permis_hh, levels = c(1, 2), labels = c("Yes", "No"))
+```
+
+```{r echo=F, results='hide', eval=F}
+kable(filtered_data)
+```
+
+We remove the variables "id_pers, NO_PERS, VP_DISPO, id_depl" that we will no longer use.
+
+```{r echo=F, results='hide', eval=T}
+selected_data <- filtered_data %>% select(-id_pers,-NO_PERS,-VP_DISPO,-id_depl)
+names(selected_data)
+#, and here are the variables in the final version:
+#id_men", "sexe", "age", "permis", "lien", "mot_o_red", "jourdepl", "duree", "mode_depl_ag", "combo_id", "child_count_hh", "elderly_count_hh", "size_hh","permis_hh",  #"car_count_hh"
+```
+
+### One-hot Encoding
+
+We apply one-hot encoding for our "lien" variable.
+This means we create new columns for each value in the "lien" variable with "true/false" values for each household.
+
+```{r echo=F, results='hide', eval=T}
+
+selected_data <- selected_data %>%
+  group_by(id_men) %>%
+  mutate(
+    Grandparent_HH = any(lien == "Grandparent"),
+    UncleAunt_HH = any(lien == "Uncle/Aunt"),
+    Housemate_HH = any(lien == "Housemate"),
+    Spouse_HH = any(lien == "Spouse")
+  ) %>%
+  ungroup()
+
+```
+
+From the "sexe" variable, we create new variables that count men and women per household.
+
+```{r echo=F, results='hide', eval=T}
+
+selected_data <- selected_data %>%
+  group_by(id_men) %>%
+  mutate(
+    Male_Count = sum(sexe == "male", na.rm = TRUE),
+    Female_Count = sum(sexe == "female", na.rm = TRUE)
+  ) %>%
+  
+  ungroup()
+
+```
+
+As a result of these preprocessing steps, we have a refined dataset with 4674 records, each representing an individual. The image below provides an overview of this dataset, showing statistics on gender, age groups, driving license status, reasons for trips, and the trip days.
+
+```{r echo=F, results='hide', eval=F}
+#save(selected_data, file = "selected_for_analysis.RData")
+```
+
+![Descriptives of the Data](Images/Descriptives.png){width='200px'}
+
+```{r echo=F, results='hide', eval=T}
+selected_data <- selected_data %>% select(-lien,-permis)
+names(selected_data)
+```
+
+```{r echo=F, results='hide', eval=F}
+kable(selected_data)
+```
+
+```{r echo=F, results='hide', eval=T}
+#this chunk is for controlling the factorisation
+str(selected_data)
+```
+## Relevel
+```{r echo=F, results='hide', eval=T}
+#for relevel
+table(selected_data$mode_depl_ag)
+```
+
+In our modeling efforts, we aim to focus exclusively on intraurban transportation and recognize the necessity of distinguishing between 'by walk' and 'bus intercity' modes, as they can not be grouped together. Therefore, we will exclude the 'intercity' category, which also has the fewest occurrences, and introduce a new category named 'Others.' This category combines 'Other,' 'by Walk,' and 'BUS in City,' allowing us to proceed with binomial regression modeling effectively.
+
+```{r echo=F, results='assis', eval=T}
+selected_data <- selected_data %>% 
+  filter(mode_depl_ag != "InterCity") %>%
+  mutate(mode_depl_ag = case_when(
+    mode_depl_ag %in% c("Other", "by Walk", "BUS in City") ~ "Others",
+    TRUE ~ mode_depl_ag
+  ))
+kable(table(selected_data$mode_depl_ag))
+```
+
+***Factorisation Check***
+
+We re-execute the factorization process to ensure that our categorical variables are correctly classified as factors. This step is crucial because previously, columns derived from one-hot encoding did not have the 'factor' data type.
+
+```{r echo=F, results='hide', eval=T}
+selected_data$mode_depl_ag <- as.factor(selected_data$mode_depl_ag)
+selected_data$permis_hh <- as.factor(selected_data$permis_hh)
+selected_data$Grandparent_HH <- as.factor(selected_data$Grandparent_HH)
+selected_data$UncleAunt_HH <- as.factor(selected_data$UncleAunt_HH)
+selected_data$Housemate_HH <- as.factor(selected_data$Housemate_HH)
+selected_data$Spouse_HH <- as.factor(selected_data$Spouse_HH)
+selected_data$jourdepl <- as.factor(selected_data$jourdepl)
+```
+
+```{r echo=F, results='hide', eval=T}
+#to check again 
+str(selected_data)
+```
+
+For the purpose of predicting and analyzing "car" choice, we set the "Others" category as the reference level.
+```{r echo=F, results='hide', eval=T}
+# relevel
+selected_data$mode_depl_ag <- relevel(selected_data$mode_depl_ag,"Others")
+```
+
+REMARK: Upon reviewing the factor variables, it is observed that the "Has_Grandparent_HH" column contains only 'False' values. Consequently, this column is not necessary for our analysis and can be omitted.
+
+```{r echo=F, results='hide', eval=T}
+sapply(selected_data, function(x) if(is.factor(x)) length(levels(x)) else NA)
+```
+
+```{r echo=F, results='hide', eval=T}
+selected_data <- selected_data %>% select(-Grandparent_HH)
+names(selected_data)
+```
+
+```{r echo=F, results='hide', eval=T}
+#save(selected_data, file = "selected_data.RData")
+```
+
+```{r echo=F, results='hide', eval=T}
+#NULL MODEL:
+model_simple <- glm(mode_depl_ag ~ 1, family = binomial, data = selected_data)
+summary(model_simple)
+```
+# Model Selection
+
+Once the explanation of the data and its handling has been done, it was implied that it was needed to determine the choice of car vs other alternatives. That's why a binomial model would be a nice fit for this specific case, choosing then to apply a Logistic Regression Model. The reference as it can be seen in blue in the image bellow, was seated to Else, this because it is wanted to analyse the effects of the chosen variables on car choice. 
+
+The team was also interested on the analysis of the effects of family structure and personal attributes, to determine if there is a significant insight it should be consider and to compare the behaviors of variables within a same model but different perspectives. 
+
+
+![Model selection](Images/ML.png){width='400px'}
+
+
+During the development of this phase it was tought that it could also be beneficial to consider other algorithms that are less sensitive to heteroscedasticity, such as decision trees, being a viable option due to their inherent robustness and notable interpretability. That is why as an extra model, the team decided to implement decision tree to understand how it behaves with the selected data. 
+
+# Model Application
+
+## Logistic Regresion
+
+### Full Model
+
+We take all variables that we select and create in the Data Preparation:
+
+model_full_binary \<- glm(mode_depl_ag \~ sexe + age + mot_o_red +jourdepl + duree +child_count_hh + elderly_count_hh + size_hh + permis_hh + car_count_hh +UncleAunt_HH+ Housemate_HH +Spouse_HH+ Male_Count + Female_Count, family = binomial, data = selected_data)
+
+```{r echo=F, results='asis', eval=T}
+# Fitting the binary logistic regression model
+selected_data$mode_depl_ag <- as.factor(selected_data$mode_depl_ag)
+selected_data$mode_depl_ag <- relevel(selected_data$mode_depl_ag, "Others")
+
+model_full_binary <- glm(mode_depl_ag ~ sexe + age + mot_o_red +jourdepl + duree +child_count_hh + elderly_count_hh + size_hh + permis_hh + car_count_hh +UncleAunt_HH+ Housemate_HH +Spouse_HH+ Male_Count + Female_Count, family = binomial, data = selected_data)
+
+#summary(model_full_binary)
+
+significant_vars <- summary(model_full_binary)$coefficients[summary(model_full_binary)$coefficients[,4] <= 0.01, ]
+
+# Extract only the Estimate and z value columns
+significant_vars <- significant_vars[, c(1, 4)]
+
+library(xtable)
+latex_table <- xtable(significant_vars)
+
+print(latex_table, type = 'latex', include.rownames = TRUE)
+
+```
+
+```{r echo=F, results='asis', eval=T}
+
+print("Null deviance: 6197.0 on 4530 degrees of freedom, Residual deviance: 4609.5 on 4510 degrees of freedom, AIC: 4651.5")
+
+```
+
+```{r echo=F, results='hide',fig.show='hide', eval=T}
+# Calculate variable importance
+coef_summary <- summary(model_full_binary)$coefficients
+variable_importance <- abs(coef_summary[, "Estimate"] / coef_summary[, "Std. Error"])
+names(variable_importance) <- names(coef_summary[, "Estimate"])
+
+# Split variable importance into two halves for plotting
+halfway_point <- ceiling(length(variable_importance) / 2)
+first_half <- variable_importance[1:halfway_point]
+second_half <- variable_importance[(halfway_point + 1):length(variable_importance)]
+
+# Increase the plotting area and split into two columns
+par(mfrow=c(1, 1), mar=c(5, 8, 4, 2) + 0.1)
+
+# Plot the first half
+barplot(first_half, main="Variable Importance (1st Half)", horiz=TRUE, las=2, cex.names=0.6)
+
+# Plot the second half
+barplot(second_half, main="Variable Importance (2nd Half)", horiz=TRUE, las=1, cex.names=0.6)
+
+# Reset to default par settings after plotting
+par(mfrow=c(1, 1), mar=c(5, 4, 4, 2) + 0.1)
+
+```
+
+The output from the full logistic regression model provides insights into the variables that influence the selection of a "Car" compared to the "Others" reference category. Here are observations regarding the coefficients and their levels of significance:
+
+1.  **Gender (sexefemale)**:
+    -   The coefficient for the "sexefemale" variable is approximately -0.1497, indicating that being female is associated with lower log-odds of choosing a car. However, this effect is marginally significant (p = 0.082), suggesting that gender might have a minor influence on the choice of car.
+2.  **Trip Reason (mot_o_red)**: Different destinations have a significant impact on the choice of car:
+    -   "ECOLE PRIMAIRE" is associated with a significant decrease in the log-odds of choosing a car (p \< 0.001). "C.E.S.-LYCEE" is associated with an even larger decrease in log-odds (p \< 0.001). "UNIVERSITE" is also associated with a significant decrease in log-odds (p \< 0.001).
+3.  **Day of trip (jourdepl)**:
+    -   The "jourdepl" variable represents the day of trip. Only "jourdepl4" and "jourdepl5" have statistically significant coefficients. it means they are associated with higher log-odds of choosing a car compared to "Others" (p \< 0.01).
+4.  **Duration (duree)**:
+    -   The coefficient for "duree" is approximately -0.0114, and it is statistically significant (p \< 0.001). This suggests that as the journey duration increases, the log-odds of choosing a car decrease.
+5.  **Household Characteristics**:
+    -   "child_count_hh" is associated with higher log-odds of choosing a car (p \< 0.001)."size_hh" is associated with lower log-odds of choosing a car (p \< 0.05).         "permis_hhNo" (lack of a driving license in the household) is associated with lower log-odds of choosing a car (p \< 0.001)."car_count_hh" (the number of cars in the household) is strongly associated with higher log-odds of choosing a car (p \< 0.001).
+6.  **Counts of Males and Females (Male_Count, Female_Count)**:
+    -   "Male_Count" is associated with lower log-odds of choosing a car (p \< 0.001). "Female_Count" is also associated with lower log-odds of choosing a car (p \< 0.001).
+
+**Overall Model Fit**: 
+    -     The model's null deviance and residual deviance are provided, with the residual deviance being substantially lower. This indicates that full model provides a significantly better fit to the data compared to a null model.
+    -     The AIC value (Akaike Information Criterion) is 4651.5, which is a measure of model goodness-of-fit. Lower AIC values suggest a better trade-off between fit and complexity.
+
+In summary, several variables have statistically significant effects on the choice of a car versus Others. These variables include trip reason, day of trip, duration, household characteristics (such as the presence of children, household size, and the number of cars in the household), and the counts of males and females.
+Other variables, such as gender and the presence of specific household members, have less significant effects.
+
+```{r echo=F, results='asis',fig.show='hide', eval=T}
+par(mfrow=c(2,2)) 
+plot(model_full_binary)
+```
+![Descriptives of the Data](Images/Plots.png){width='300px'}
+
+Based on the **Diagnostic Plots** :
+
+1.  **Residuals vs Fitted**: This plot shows if there are any non-linear patterns in the residuals, and whether the model is correctly specifying the functional form. The residuals should be randomly dispersed around the horizontal line at 0. In our plot, the residuals don't display a clear pattern, which is good. However, there is a slight 'fanning out' effect indicating potential heteroscedasticity (non-constant variance of residuals).
+2.  **Normal Q-Q**: This plot is used to check the normality of residuals. If the residuals are normally distributed, the points should fall approximately along the reference line. Our Q-Q plot shows that the residuals deviate slightly from normality at the tails, but overall, they seem reasonably well-behaved.
+3.  **Scale-Location (or Spread-Location)**: This plot shows if residuals are spread equally along the ranges of predictors. This is another way to check for homoscedasticity. Our plot shows that the residuals' spread increases with the fitted values, indicating possible heteroscedasticity.
+4.  **Residuals vs Leverage**: This plot helps to identify influential cases (outliers), which are points with high leverage that can have a disproportionate impact on the model. The Cook's distance lines help to identify these points. In our plot, there are a few points outside the Cook's distance lines,it means we may have some influential outliers in dataset.
+
+```{r echo=F, results='hide', fig.show='hide', eval=T}
+# Identify potential outliers
+influential <- cooks.distance(model_full_binary) > (4 / length(fitted(model_full_binary)))
+plot(influential, type="h")
+
+```
+
+```{r echo=F, results='hide', fig.show='hide', eval=T}
+probabilities <- predict(model_full_binary, type = "response")
+roc_obj <- roc(selected_data$mode_depl_ag, probabilities)
+plot(roc_obj)
+auc(roc_obj)
+#The ROC curve is a graphical representation of the true positive rate (sensitivity) against the false positive rate (1 - specificity) for a binary classifier system.
+#AUC values range from 0 to 1, with a value of 0.5 suggesting no discrimination ability (equivalent to random chance), and a value of 1 indicating perfect separation between the classes.
+```
+![Descriptives of the Data](Images/ROC.png){width='250px'}
+
+Based on the **ROC Curve and AUC:**
+
+Our ROC curve shows a good separation between the positive and negative classes, as it bows towards the top left corner of the plot.
+
+The AUC (Area Under the ROC Curve) value is 0.8245, which is a good score.
+An AUC of approximately 0.82 suggests that the model has a good predictive ability to distinguish between the classes in our outcome variable.
+
+To sum up for our full model, it seems to perform well in terms of AUC, indicating good predictive power.
+However, the diagnostic plots suggest that there might be some issues with heteroscedasticity and influential outliers.
+These might affect the reliability of the coefficient estimates and standard errors.
+
+```{r echo=F, results='hide', eval=T}
+# Calculate Cook's distances for the model(recalculating here, i know)
+cooks_distances <- cooks.distance(model_full_binary)
+
+threshold <- 4 / length(cooks_distances)
+influential_indexes <- which(cooks_distances > threshold)
+influential_data <- selected_data[influential_indexes, ]
+print(influential_data)
+
+```
+
+```{r echo=F, results='hide', fig.show='hide', eval=T}
+# Descriptive statistics for the full dataset
+full_stats <- selected_data %>% summarise(across(where(is.numeric), list(mean=mean, median=median, sd=sd)))
+
+# Descriptive statistics for the influential points
+influential_stats <- influential_data %>% summarise(across(where(is.numeric), list(mean=mean, median=median, sd=sd)))
+
+print(full_stats)
+print(influential_stats)
+
+# Distribution analysis for a key variable (age)
+full_age_distribution <- density(selected_data$age)
+influential_age_distribution <- density(influential_data$age)
+
+# Plot the distributions
+plot(full_age_distribution, main="Age Distribution", xlab="Age", col="blue", xlim=range(c(selected_data$age, influential_data$age)))
+lines(influential_age_distribution, col="red")
+legend("topright", legend=c("Full Dataset", "Influential Points"), col=c("blue", "red"), lty=1)
+
+# Group comparison for a categorical variable (mode_depl_ag)
+full_group_counts <- selected_data %>% count(mode_depl_ag)
+influential_group_counts <- influential_data %>% count(mode_depl_ag)
+
+# Normalize counts by the number of records in each subset for comparison
+full_group_counts$freq <- full_group_counts$n / nrow(selected_data)
+influential_group_counts$freq <- influential_group_counts$n / nrow(influential_data)
+
+# Merge for comparison
+group_comparison <- merge(full_group_counts, influential_group_counts, by="mode_depl_ag", suffixes = c("_full", "_influential"))
+
+# Print the comparison
+print(group_comparison)
+
+# For graphical comparison, let's create a boxplot of age for the full dataset and influential points
+ggplot() +
+  geom_boxplot(data=selected_data, aes(x=factor(0), y=age), fill="blue", alpha=0.5) +
+  geom_boxplot(data=influential_data, aes(x=factor(1), y=age), fill="red", alpha=0.5) +
+  scale_x_discrete(labels=c("Full Dataset", "Influential Points")) +
+  labs(y="Age", x="Dataset", title="Boxplot of Age") +
+  theme_minimal()
+
+```
+Let's evaluate:
+
+In the descriptive statistics results, we can see a high difference between duree ranges.
+Looking at the standard deviations(25.86 in full data, 57.43 in influential data), there is a much higher standard deviation for duree in the influential subset which indicates greater variability.
+
+Looking at the density plot for age, the shapes of the two distributions(lines) are similar but the red line is higher than the blue line in the 20-30 age range.
+This suggests that the influential points are skewing the results of the analysis.
+For example, it is possible that the influential points are all from a single population, such as a group of people who were all born in the same year.
+This would artificially increase the density of people in the 20-30 age range.
+We can conclude same result from boxplots and descriptive statistics results for age variable.
+
+Looking at the proportions of the categories within the influential subset versus the full dataset.
+The frequency proportions are similar.
+The influential points are not causing a significant shift in the distribution of our outcome.
+
+In conclusion, the influential points in our dataset do not appear to be clear outliers, but they do exhibit some characteristics that set them apart from the rest of the data.
+Their influence on our model may be due to the variability in numeric variables like "duree" and the concentration of points within certain ranges of the "age" variable.
+
+As a result, since influential points don't change the outcome proportion and they represent a meaningful subgroup within data that we want our model to capture, and the higher variability in some variables among the influential points is not problematic for our analysis as they are valid data points, it may be appropriate to keep them.
+
+### Reduced Model
+
+By eliminating variables such as permis and car count that are statistically significant in the full model, we reduce our model only to family structure (variables containing age,relation, gender information) to see if there is any change.
+
+model_reduced_binary \<- glm(mode_depl_ag \~ sexe + age +child_count_hh+ elderly_count_hh +UncleAunt_HH+ Housemate_HH +Spouse_HH+ Male_Count + Female_Count, family = binomial, data = selected_data)
+
+```{r echo=F, results='asis', eval=T}
+# Fitting the binary logistic regression model
+selected_data$mode_depl_ag <- as.factor(selected_data$mode_depl_ag)
+selected_data$mode_depl_ag <- relevel(selected_data$mode_depl_ag, "Others")
+
+model_reduced_binary <- glm(mode_depl_ag ~ sexe + age +child_count_hh+ elderly_count_hh +UncleAunt_HH+ Housemate_HH +Spouse_HH+ Male_Count + Female_Count, family = binomial, data = selected_data)
+
+#summary(model_reduced_binary)
+
+significant_vars1 <- summary(model_reduced_binary)$coefficients[summary(model_reduced_binary)$coefficients[,4] <= 0.01, ]
+
+# Extract only the Estimate and z value columns
+significant_vars1 <- significant_vars1[, c(1, 4)]
+
+library(xtable)
+latex_table1 <- xtable(significant_vars1)
+
+print(latex_table1, type = 'latex', include.rownames = TRUE)
+```
+
+```{r echo=F, results='asis', eval=T}
+
+print("Null deviance: 6197.0 on 4530 degrees of freedom, Residual deviance: 5475.8 on 4521 degrees of freedom, AIC: 5495.8")
+
+```
+
+1.  **Intercept (Intercept)**: 
+    -   The intercept represents the log-odds of choosing a car when all other predictor variables are zero. The log-odds is approximately -0.844, and it is statistically significant (p \< 0.001). This means that when all other predictors are zero, there is a significant difference in the odds of choosing a car compared to "Others."
+2.  **Gender (sexefemale)**:
+    -   The coefficient for the "sexefemale" variable is approximately -0.2083, indicating that being female is associated with lower log-odds of choosing a car. This effect is statistically significant (p = 0.007), suggesting that gender has a significant influence on the choice of a car.
+3.  **Age (age)**:
+    -   The coefficient for age is approximately 0.0412, and it is highly statistically significant (p \< 0.001). This suggests that as age increases, the log-odds of choosing a car also increase significantly.
+4.  **Living with Spouse [Spouse_HH)**:
+    -   The coefficient for Spouse_HH is approximately 0.6219, and it is highly statistically significant (p \< 0.001). This suggests that as Spouse_HH increases, the log-odds of choosing a car also increase significantly.
+5.  **Counts of Males and Females (Male_Count, Female_Count)**:
+    -   "Male_Count" is associated with lower log-odds of choosing a car (p = 0.011).
+    -   "Female_Count" is highly statistically significant and associated with lower log-odds of choosing a car (p \< 0.001).
+
+The residual deviance is lower than the null deviance, indicating that our model provides a better fit to the data compared to a null model.
+but the AIC value (5495.8), which is a measure of model goodness-of-fit, is greater than the Full model's.
+
+REMARK: Some variables that were not initially statistically significant in the full model have become significant in the reduced model.
+
+```{r echo=F, results='hide', fig.show='hide', eval=T}
+par(mfrow=c(2,2)) 
+plot(model_reduced_binary)
+```
+
+-   We have similiar results for the reduced model with the full model in Diagnostics Plots.
+
+```{r echo=F, results='hide', fig.show='hide', eval=T}
+probabilities <- predict(model_reduced_binary, type = "response")
+roc_obj <- roc(selected_data$mode_depl_ag, probabilities)
+plot(roc_obj)
+auc(roc_obj)
+```
+
+-   The Area Under the Curve (AUC) for the full model is 0.8245, while the AUC for the reduced model is 0.7241. This suggests that the full model has a better ability to distinguish between the two classes than the reduced model.
+
+**Comparing Models:** The choice between the full model and the reduced model should be based on a trade-off between complexity and predictive power.
+While the full model has a higher AUC, indicating better predictive performance, it's also more complex and could be overfitting.
+The reduced model, while simpler and potentially more generalizable, has a lower AUC, indicating less predictive accuracy.
+
+Let's move on choosing full binary model.
+
+### Cross Validation
+
+```{r echo=F, results='assis', eval=T}
+library(boot)
+
+set.seed(123) # for reproducibility
+cv_full_model <- cv.glm(selected_data, model_full_binary, K = 10) # K-fold cross-validation
+print(cv_full_model$delta)
+
+```
+
+Lower values for these metrics indicates better model performance.The two values are close to each other shows that the model's performance is relatively consistent across the different cross-validation folds, indicating that our model is likely to generalize well to unseen data.
+
+It could also be beneficial to consider other algorithms that are less sensitive to heteroscedasticity, such as decision trees or ensemble methods like random forests or gradient boosting machines.
+
+In terms of model selection, if we are seeking a model with greater interpretability, a decision tree could be a good choice, as it provides a clear visualization of the decision paths.
+We might also try ensemble methods or support vector machines, which often perform better in terms of predictive accuracy but are less interpretable than decision trees.
+
+## Decision Tree
+
+We apply a decision tree model to understand and evaluate the model's metric scores.
+
+```{r echo=F, results='asis', fig.show='hide',eval=T}
+library(rpart)
+library(rpart.plot)
+library(caret)
+
+set.seed(123)
+
+selected_variables <- c("sexe", "age", "mot_o_red", "jourdepl", "duree", 
+                        "child_count_hh", "elderly_count_hh", "size_hh", 
+                        "permis_hh", "car_count_hh", "UncleAunt_HH", 
+                        "Housemate_HH", "Spouse_HH", "Male_Count", "Female_Count", 
+                        "mode_depl_ag")
+
+
+selected_data <- selected_data[, selected_variables]
+
+# Split the data into training and test sets (70% training, 30% test)
+splitIndex <- createDataPartition(selected_data$mode_depl_ag, p = 0.7, 
+                                  list = FALSE, 
+                                  times = 1)
+training_data <- selected_data[splitIndex, ]
+test_data <- selected_data[-splitIndex, ]
+
+# Build a decision tree model using the training data
+model_tree <- rpart(mode_depl_ag ~ ., data = training_data, method = "class")
+
+# Visualize the decision tree
+#prp(model_tree, type = 2, extra = 101)
+
+# Make predictions on the test data
+predictions <- predict(model_tree, newdata = test_data, type = "class")
+
+# Print the confusion matrix
+confusion_matrix <- table(predictions, test_data$mode_depl_ag)
+kable((confusion_matrix))
+
+# Calculate and print the accuracy
+accuracy <- sum(diag(confusion_matrix)) / sum(confusion_matrix)
+cat("Accuracy:", accuracy, "\n")
+```
+
+```{r echo=F, results='hide',eval=T}
+# Calculate precision, recall, and F1 score
+cm <- confusionMatrix(as.factor(predictions), as.factor(test_data$mode_depl_ag))
+print(cm$byClass)
+```
+
+Our decision tree model has an overall accuracy of approximately 73.21%.
+This means that the model correctly predicts the transport choice for about 73 out of 100 cases.
+Looking at the specific metrics:
+
+-   Sensitivity (Recall) for 'Car': The model has a sensitivity of about 69.34%, indicating that it correctly identifies 69.34% of the actual 'Car' transport choices.
+This is a measure of the model's ability to identify positive results.
+-   Specificity for 'Others': The specificity is approximately 76.16%, which means that the model correctly identifies 76.16% of the instances where
+transport choices other than 'Car' are made.
+-   Precision for 'Car': Precision is about 68.87%, which shows that when the model predicts 'Car' as the transport choice, it is correct approximately 68.87% of the time.
+-   F1 Score for 'Car'The F1 score, which balances precision and recall, is approximately 69.10%.
+This suggests that the model has a fairly balanced performance between precision and recall, which is generally desirable.
+
+From these scores, we can infer that our model has moderate performance in predicting the transport choice based on household structure.
+While the accuracy is relatively high, there is still room for improvement, especially in terms of precision and recall.
+This could potentially be improved by feature engineering, hyperparameter tuning, or using a more complex model.
+
+# Conclusion
+
+The researchers initially considered employing the K-means algorithm for clustering. However, given the categorical nature of the dataset, this approach was deemed unsuitable. Consequently, the researchers opted for a Binary Logistic Regression model, a choice in line with the literature's recommendation for analyzing categorical outcomes. This model choice supports the research question which is: "When applying logistic regression to the structured data, how significant are the effects of Age, Driving License status, and the different household characteristics in influencing the choice of car over an alternative transportation modes?" and is justified based on the results and conclusions obtained from the logistic regression analysis.
+
+In the full model we applied; gender, household size, number of children in the household, number of men and women in the household, trip reason, trip duration, specific trip days, presence of a driver's license in the household and the number of cars owned by the household appear to be significant.
+
+In the evaluations we make for model analysis, metric scores showing the accuracy of the model give good results. 
+In addition, as a result of the examinations, it was found that there is a certain age group that directs the results of the full model we applied.
+
+This shows that although the age variable does not appear to have a statistically significant effect in the full model, it has an effect that directs the whole model. Since the distribution of this particular age group on the binary output matches the entire data and represents an important subset of the data, it was concluded that it should be kept in the dataset and evaluated in the model.
+
+As seen in the results of the articles and in the full model we applied, the variables of driving license, number of cars, and trip duration, trip day, and trip destination related to the trip were statistically significant.
+
+In the reduced model, these household variables were dropped and the effect of the family structure variables and the accuracy scores of the new model were examined.
+As a result of the applied reduced model, it was seen that gender, age, living with a spouse and the number of women in the household had a statistical effect on the choice of car as a transport mode.
+
+In the Diagnostic Plot results examined for model analysis, similar results were encountered with the full model.
+
+The AIC score and AUC score of the reduced model gave worse results than the full model. In this case, driver's license ownership, car count, trip destination, trip duration and certain trip days, which were significant in the full model, contributed more positively to the model.
+As a result of the analysis, the variables age, which are not significant in the full model but whose impact we see on the model, and living with Spouse appear as significant in the reduced model.
+
+In both models, gender being female and the number of women in the household appear as significant variables that have a negative impact on the choice of car for transportation.
+
+Given these significant findings, it is evident that age, driving license status, and various household characteristics play crucial roles in shaping the preferences of car over an alternative transportation mode. The research question is justified as it successfully captures and evaluates the impact of these variables on the transportation choices.
+
+The results we obtained are consistent with the results obtained in the articles. As in the literature review section, the results obtained at the end of the study showed that age and gender were important factors in travel mode choice. Household roles are also examined, as in the article written by Ji Y.et al. (2018), and found that the number of women, men and children in the household was a statistically significant measure.
+
+
+
+\newpage
+# References
+
+-   Determinants of transport mode choice: a comparison of Germany and the USA (Ralph Buehler, 2011, Journal of Transport Geography 19 (2011), 644--657)
+
+-   How Household Roles Influence Individuals\' Travel Mode Choice under Intra-household Interactions?
+    (Ji Y. et al., 2018, Korean Society of Civil Engineering Journal, 22(11), 4635-4644)
+
+-   The determinants of travel mode choice: the case of Łódź, Poland (Szymon Wojcik, 2019, Bulletin of Geography Socio-economic Series, No.44, 93-101)
+
+-   Transportation mode choice binary logit model: a case study for Johor Bahru city (Puan O. et al., 2019, IOP Conference Series: Materials Science and Engineering, 527)
